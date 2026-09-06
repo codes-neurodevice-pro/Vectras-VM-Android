@@ -998,9 +998,16 @@ public class VMCreatorActivity extends AppCompatActivity {
 
                 if (jObj.has("vmID")) {
                     if (!jObj.isNull("vmID")) {
-                        if (!jObj.getString("vmID").isEmpty()) {
-                            FileUtils.move(VmFileManager.getConfigFile(vmID), VmFileManager.getConfigFile(jObj.getString("vmID")));
-                            vmID = jObj.getString("vmID");
+                        String importedVmID = jObj.getString("vmID");
+                        if (!importedVmID.isEmpty()) {
+                            // Validate the imported VM ID to prevent command injection
+                            if (!VMManager.isValidVMID(importedVmID)) {
+                                Log.w(TAG, "Invalid VM ID from imported package: " + importedVmID + ". Sanitizing...");
+                                importedVmID = VMManager.sanitizeVMID(importedVmID);
+                                Log.i(TAG, "Sanitized VM ID: " + importedVmID);
+                            }
+                            FileUtils.move(VmFileManager.getConfigFile(vmID), VmFileManager.getConfigFile(importedVmID));
+                            vmID = importedVmID;
                         }
                     }
                 }
