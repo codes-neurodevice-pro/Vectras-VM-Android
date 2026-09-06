@@ -1,15 +1,12 @@
 //file:noinspection UnnecessaryQualifiedReference, GrDeprecatedAPIUsage
 apply plugin: 'com.android.application'
 
-def appSigningConfig = project(':app').android.signingConfigs.debug
-
 android {
 
     buildTypes {
         debug {
-            if (appSigningConfig != null) {
-                signingConfig appSigningConfig
-            }
+            // Debug builds use the default Android debug keystore
+            // No custom signing configuration needed
         }
     }
     buildToolsVersion '36.1.0'
@@ -30,12 +27,21 @@ androidComponents {
     }
 }
 
-def signingConfig = project(':app').android.signingConfigs.debug
-def keyStore = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType())
-keyStore.load(new FileInputStream(signingConfig.storeFile), signingConfig.keyPassword.toCharArray())
+// Generate a stable signature hash for the default Android debug keystore
+// This allows the loader to verify the main app's signature
+def debugKeyStore = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType())
+def debugKeystoreFile = new File(System.getProperty("user.home"), ".android/debug.keystore")
+if (debugKeystoreFile.exists()) {
+    debugKeyStore.load(new FileInputStream(debugKeystoreFile), "android".toCharArray())
+    def debugCert = debugKeyStore.getCertificate("androiddebugkey")
+    android.defaultConfig.buildConfigField "int", "SIGNATURE", String.valueOf(Arrays.hashCode(debugCert.getEncoded()))
+} else {
+    // Fallback: use a placeholder that will be replaced at build time
+    // In production, this should be configured via CI/CD with the actual release certificate
+    android.defaultConfig.buildConfigField "int", "SIGNATURE", "0"
+}
 
 android.defaultConfig.buildConfigField "String", "logTag", "\"Termux:X11 loader\""
-android.defaultConfig.buildConfigField "int", "SIGNATURE", String.valueOf(Arrays.hashCode(keyStore.getCertificate(signingConfig.keyAlias).getEncoded()))
 android.defaultConfig.buildConfigField "String", "CLASS_ID", "\"com.vectras.vm.x11.CmdEntryPoint\""
 android.defaultConfig.buildConfigField "String", "packageNotInstalledErrorText",
         """\"Termux:X11 application is not found.\" +

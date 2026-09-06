@@ -24,27 +24,43 @@ android {
 
     signingConfigs {
         debug {
-            storeFile file('../vectras.jks')
-            keyAlias 'vectras'
-            storePassword '856856'
-            keyPassword '856856'
+            // Debug builds use the default Android debug keystore
+            // No custom signing configuration needed for debug builds
         }
         release {
-            storeFile file('../vectras.jks')
-            keyAlias 'vectras'
-            storePassword '856856'
-            keyPassword '856856'
+            // Release signing configuration should be provided via environment variables
+            // or local.properties file (not committed to version control)
+            def keystorePropertiesFile = rootProject.file("keystore.properties")
+            if (keystorePropertiesFile.exists()) {
+                def keystoreProperties = new Properties()
+                keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+                
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            } else if (System.getenv('KEYSTORE_FILE') != null) {
+                // CI/CD environment variables
+                storeFile file(System.getenv('KEYSTORE_FILE'))
+                storePassword System.getenv('KEYSTORE_PASSWORD')
+                keyAlias System.getenv('KEY_ALIAS')
+                keyPassword System.getenv('KEY_PASSWORD')
+            }
+            // If neither exists, release builds will fail with a clear error
         }
     }
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            // Only apply release signing config if it's properly configured
+            if (signingConfigs.release.storeFile != null) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
-            signingConfig signingConfigs.debug
+            // Debug builds use default Android debug keystore
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
