@@ -800,63 +800,158 @@ public class VMManager {
     public static boolean isthiscommandsafe(@NonNull String _command, Context _context) {
         Log.d("VMManager.isthiscommandsafe", _command);
 
-        if (_command.startsWith("qemu")) {
-            if (!_command.contains("&")) {
-                if (!_command.contains("\n")) {
-                    if (!_command.contains(";")) {
-                        if (!_command.contains("|")) {
-                            return true;
-                        } else {
-                            latestUnsafeCommandReason = _context.getString(R.string.command_are_not_allowed_to_contain_vertical_bars);
-                        }
-                    } else {
-                        latestUnsafeCommandReason = _context.getString(R.string.command_are_not_allowed_to_contain_semicolons);
-                    }
-                } else {
-                    latestUnsafeCommandReason = _context.getString(R.string.command_are_not_allowed_to_contain_multiple_lines);
-                }
-            } else {
-                latestUnsafeCommandReason = _context.getString(R.string.command_are_not_allowed_to_contain_amp);
-            }
-        } else {
+        if (!_command.startsWith("qemu")) {
             latestUnsafeCommandReason = _context.getString(R.string.not_the_command_to_run_qemu);
+            return false;
         }
-        return false;
+
+        // Block all shell metacharacters that could enable command injection
+        // This includes: command substitution, backticks, redirection, pipes, 
+        // semicolons, ampersands, newlines, wildcards, and other shell syntax
+        String[] dangerousChars = {
+            "$",      // Command substitution: $(cmd) or $var
+            "`",      // Backtick command substitution
+            "(",      // Subshell or command substitution
+            ")",      // Subshell or command substitution
+            "{",      // Brace expansion
+            "}",      // Brace expansion
+            "[",      // Glob pattern
+            "]",      // Glob pattern
+            "*",      // Wildcard
+            "?",      // Wildcard
+            "<",      // Input redirection
+            ">",      // Output redirection
+            "|",      // Pipe
+            "&",      // Background execution or logical AND
+            ";",      // Command separator
+            "\n",     // Newline (command separator)
+            "\r",     // Carriage return
+            "\\",     // Escape character
+            "'",      // Single quote (string delimiter)
+            "\"",     // Double quote (string delimiter)
+            "#",      // Comment (could hide malicious code)
+            "!",      // History expansion or logical NOT
+            "~"       // Home directory expansion
+        };
+
+        for (String dangerousChar : dangerousChars) {
+            if (_command.contains(dangerousChar)) {
+                latestUnsafeCommandReason = "Command contains forbidden character: " + dangerousChar;
+                Log.w("VMManager.isthiscommandsafe", "Blocked command with forbidden char '" + dangerousChar + "': " + _command);
+                return false;
+            }
+        }
+
+        // Additional validation: ensure command only contains safe characters
+        // Allow: alphanumeric, space, hyphen, equals, comma, period, colon, forward slash, underscore
+        if (!_command.matches("^[a-zA-Z0-9\\s\\-=,.:/_]+$")) {
+            latestUnsafeCommandReason = "Command contains invalid characters";
+            Log.w("VMManager.isthiscommandsafe", "Blocked command with invalid characters: " + _command);
+            return false;
+        }
+
+        return true;
     }
 
     public static boolean isthiscommandsafeimg(@NonNull String _command, Context _context) {
-        // This is unnecessary because the Android filesystem only counts the space used within the .img file.
-//        if (!_command.contains("qcow2")) {
-//            String _getsize = _command.trim().substring(_command.lastIndexOf(" ") + 1);
-//            if (_getsize.toLowerCase().endsWith("t") || _getsize.toLowerCase().endsWith("p") || _getsize.toLowerCase().endsWith("e")) {
-//                latestUnsafeCommandReason = _context.getString(R.string.size_too_large_try_qcow2_format);
-//                return false;
-//            }
-//            if (_getsize.toLowerCase().endsWith("g")) {
-//                if (_getsize.length() <= 2) {
-//                    return true;
-//                } else {
-//                    latestUnsafeCommandReason = _context.getString(R.string.size_too_large_try_qcow2_format);
-//                    return false;
-//                }
-//            }
-//            if (_getsize.toLowerCase().endsWith("m")) {
-//                if (_getsize.length() <= 4) {
-//                    return true;
-//                } else {
-//                    latestUnsafeCommandReason = _context.getString(R.string.size_too_large_try_qcow2_format);
-//                    return false;
-//                }
-//            }
-//            if (_getsize.toLowerCase().endsWith("k")) {
-//                if (_getsize.length() <= 8) {
-//                    return true;
-//                } else {
-//                    latestUnsafeCommandReason = _context.getString(R.string.size_too_large_try_qcow2_format);
-//                    return false;
-//                }
-//            }
-//        }
+        Log.d("VMManager.isthiscommandsafeimg", _command);
+
+        // Validate that command starts with qemu-img
+        if (!_command.startsWith("qemu-img ")) {
+            latestUnsafeCommandReason = "Command must start with 'qemu-img'";
+            return false;
+        }
+
+        // Block all shell metacharacters that could enable command injection
+        String[] dangerousChars = {
+            "$",      // Command substitution
+            "`",      // Backtick command substitution
+            "(",      // Subshell
+            ")",      // Subshell
+            "{",      // Brace expansion
+            "}",      // Brace expansion
+            "[",      // Glob pattern
+            "]",      // Glob pattern
+            "*",      // Wildcard
+            "?",      // Wildcard
+            "<",      // Input redirection
+            ">",      // Output redirection
+            "|",      // Pipe
+            "&",      // Background execution
+            ";",      // Command separator
+            "\n",     // Newline
+            "\r",     // Carriage return
+            "\\",     // Escape character
+            "'",      // Single quote
+            "\"",     // Double quote
+            "#",      // Comment
+            "!",      // History expansion
+            "~"       // Home directory expansion
+        };
+
+        for (String dangerousChar : dangerousChars) {
+            if (_command.contains(dangerousChar)) {
+                latestUnsafeCommandReason = "Command contains forbidden character: " + dangerousChar;
+                Log.w("VMManager.isthiscommandsafeimg", "Blocked command with forbidden char '" + dangerousChar + "': " + _command);
+                return false;
+            }
+        }
+
+        // Parse command arguments
+        String[] parts = _command.trim().split("\\s+");
+        if (parts.length < 2) {
+            latestUnsafeCommandReason = "Invalid qemu-img command format";
+            return false;
+        }
+
+        String subcommand = parts[1];
+        
+        // Only allow specific qemu-img subcommands
+        if (!subcommand.equals("create") && !subcommand.equals("info") && 
+            !subcommand.equals("convert") && !subcommand.equals("resize")) {
+            latestUnsafeCommandReason = "qemu-img subcommand not allowed: " + subcommand;
+            Log.w("VMManager.isthiscommandsafeimg", "Blocked disallowed subcommand: " + subcommand);
+            return false;
+        }
+
+        // Validate file paths - must be in allowed directories
+        for (int i = 2; i < parts.length; i++) {
+            String part = parts[i];
+            // Skip flags and their values
+            if (part.startsWith("-")) {
+                continue;
+            }
+            
+            // Check if this looks like a file path (contains / or ends with image extension)
+            if (part.contains("/") || part.endsWith(".img") || part.endsWith(".qcow2") || 
+                part.endsWith(".vdi") || part.endsWith(".vmdk") || part.endsWith(".vhd")) {
+                
+                // Ensure path is absolute and in allowed locations
+                if (!part.startsWith("/sdcard/") && 
+                    !part.startsWith("/storage/") && 
+                    !part.startsWith(AppConfig.maindirpath) &&
+                    !part.startsWith(AppConfig.vmFolder)) {
+                    latestUnsafeCommandReason = "File path not in allowed directory: " + part;
+                    Log.w("VMManager.isthiscommandsafeimg", "Blocked path outside allowed directories: " + part);
+                    return false;
+                }
+                
+                // Block path traversal attempts
+                if (part.contains("..")) {
+                    latestUnsafeCommandReason = "Path traversal not allowed";
+                    Log.w("VMManager.isthiscommandsafeimg", "Blocked path traversal attempt: " + part);
+                    return false;
+                }
+            }
+        }
+
+        // Additional validation: ensure command only contains safe characters
+        if (!_command.matches("^[a-zA-Z0-9\\s\\-=,.:/_]+$")) {
+            latestUnsafeCommandReason = "Command contains invalid characters";
+            Log.w("VMManager.isthiscommandsafeimg", "Blocked command with invalid characters: " + _command);
+            return false;
+        }
+
         return true;
     }
 
