@@ -21,24 +21,79 @@ package android.androidVNC;
 
 // Adopted to ms-logon for ultravnc and ported to Java by marscha, 2006.
 
-//import java.lang.Math;
+import java.security.SecureRandom;
+import android.util.Log;
 
 public class DH {
 
+        private static final String TAG = "DH";
+        private static final SecureRandom secureRandom = new SecureRandom();
+        
+        // Minimum acceptable modulus to prevent trivial attacks
+        // Set to 2^20 as a reasonable minimum for the constrained 31-bit protocol
+        private static final long MIN_MODULUS = 1L << 20;
+        
+        // Minimum acceptable generator to prevent degenerate groups
+        private static final long MIN_GENERATOR = 2;
+
         public DH() {
                 maxNum = (((long) 1) << DH_MAX_BITS) - 1;
+                Log.w(TAG, "WARNING: UltraVNC DH authentication uses a weak 31-bit key exchange protocol. " +
+                                "This protocol is vulnerable to cryptographic attacks and should be avoided when possible.");
         }
 
         public DH(long generator, long modulus) throws Exception {
+                this();
                 maxNum = (((long) 1) << DH_MAX_BITS) - 1;
+                
+                // Validate upper bounds
                 if (generator >= maxNum || modulus >= maxNum)
                         throw new Exception("Modulus or generator too large.");
+                
+                // Validate modulus is sufficiently large to prevent trivial attacks
+                if (modulus < MIN_MODULUS)
+                        throw new Exception("Modulus too small (minimum " + MIN_MODULUS + " required). Possible attack detected.");
+                
+                // Validate generator is not degenerate (0 or 1 would create weak/predictable keys)
+                if (generator < MIN_GENERATOR)
+                        throw new Exception("Generator too small (minimum " + MIN_GENERATOR + " required). Possible attack detected.");
+                
+                // Validate modulus is odd (even modulus would be composite and weak)
+                if ((modulus & 1) == 0)
+                        throw new Exception("Modulus is even (must be odd prime). Possible attack detected.");
+                
+                // Validate generator is less than modulus
+                if (generator >= modulus)
+                        throw new Exception("Generator must be less than modulus. Invalid parameters.");
+                
+                // Perform basic primality check on modulus using Miller-Rabin
+                if (!millerRabin(modulus, 25))
+                        throw new Exception("Modulus failed primality test. Possible attack detected.");
+                
                 gen = generator;
                 mod = modulus;
         }
 
         private long rng(long limit) {
-                return (long) (java.lang.Math.random() * limit);
+                // Use SecureRandom instead of Math.random() for cryptographic operations
+                // Generate random bytes and convert to long in range [0, limit)
+                if (limit <= 0) {
+                        return 0;
+                }
+                
+                // For values that fit in positive int range, use nextInt for efficiency
+                if (limit <= Integer.MAX_VALUE) {
+                        return secureRandom.nextInt((int) limit);
+                }
+                
+                // For larger values, use rejection sampling to avoid modulo bias
+                long result;
+                long maxValid = (Long.MAX_VALUE / limit) * limit;
+                do {
+                        result = secureRandom.nextLong() & Long.MAX_VALUE; // Keep positive
+                } while (result >= maxValid);
+                
+                return result % limit;
         }
 
         //Performs the miller-rabin primality test on a guessed prime n.
@@ -118,6 +173,19 @@ public class DH {
                 if (interKey >= maxNum){
                         throw new Exception("interKey too large");
                 }
+                
+                // Validate peer public value is in valid range to prevent attacks
+                // Must be: 1 < interKey < modulus - 1
+                if (interKey <= 1)
+                        throw new Exception("Peer public value too small (must be > 1). Possible attack detected.");
+                
+                if (interKey >= mod - 1)
+                        throw new Exception("Peer public value too large (must be < modulus - 1). Possible attack detected.");
+                
+                // Additional check: ensure interKey is not equal to generator (would reveal private key)
+                if (interKey == gen)
+                        throw new Exception("Peer public value equals generator. Possible attack detected.");
+                
                 return key = XpowYmodN(interKey,priv,mod);
         }
 
