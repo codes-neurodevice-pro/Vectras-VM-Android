@@ -91,7 +91,54 @@ public class RunCommandService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         // Run again in case service is already started and onCreate() is not called
         runStartForeground();
-            Uri programUri = new Uri.Builder().scheme("com.termux.file").path(parsePath(intent.getStringExtra(RUN_COMMAND_PATH))).build();
+
+        // Security validation: Check if intent is null
+        if (intent == null) {
+            Log.e("termux", "RunCommandService received null intent");
+            runStopForeground();
+            return Service.START_NOT_STICKY;
+        }
+
+        // Security validation: Verify the action is correct
+        String action = intent.getAction();
+        if (!RUN_COMMAND_ACTION.equals(action)) {
+            Log.e("termux", "RunCommandService received unauthorized action: " + action);
+            runStopForeground();
+            return Service.START_NOT_STICKY;
+        }
+
+        // Security validation: Check if external apps are allowed
+        if (!allowExternalApps()) {
+            Log.e("termux", "RunCommandService rejected: allow-external-apps is not enabled in termux.properties");
+            runStopForeground();
+            return Service.START_NOT_STICKY;
+        }
+
+        // Security validation: Verify caller is authorized
+        int callingUid = Binder.getCallingUid();
+        int myUid = android.os.Process.myUid();
+        
+        // Allow calls from the same UID (internal calls)
+        if (callingUid != myUid) {
+            // For external callers, verify they have the required permission
+            String requiredPermission = "com.termux.permission.RUN_COMMAND";
+            if (checkCallingPermission(requiredPermission) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                Log.e("termux", "RunCommandService rejected: caller does not have " + requiredPermission + " permission");
+                runStopForeground();
+                return Service.START_NOT_STICKY;
+            }
+        }
+
+        // Security validation: Validate required command path is provided
+        String commandPath = intent.getStringExtra(RUN_COMMAND_PATH);
+        if (commandPath == null || commandPath.isEmpty()) {
+            Log.e("termux", "RunCommandService rejected: no command path provided");
+            runStopForeground();
+            return Service.START_NOT_STICKY;
+        }
+
+        try {
+            Uri programUri = new Uri.Builder().scheme("com.termux.file").path(parsePath(commandPath)).build();
 
             Intent execIntent = new Intent(TermuxService.ACTION_EXECUTE, programUri);
             execIntent.setClass(this, TermuxService.class);
@@ -104,7 +151,9 @@ public class RunCommandService extends Service {
             } else {
                 this.startService(execIntent);
             }
-
+        } catch (Exception e) {
+            Log.e("termux", "RunCommandService error processing command", e);
+        }
 
         runStopForeground();
 
