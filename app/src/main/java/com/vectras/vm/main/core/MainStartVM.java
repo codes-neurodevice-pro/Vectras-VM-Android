@@ -314,7 +314,24 @@ public class MainStartVM {
     ) {
         VMManager.isQemuStopedWithError = false;
 
-        String cleanUpCommand = " && echo '" + TAG_FINISHED_WITHOUT_ERROR + "'\nrm -r " + Config.getCacheVMPath(vmID);
+        // Validate VM ID to prevent command injection
+        if (!VMManager.isValidVMID(vmID)) {
+            Log.e(TAG, "Invalid VM ID detected: " + vmID);
+            DialogUtils.oneDialog(
+                    context,
+                    context.getString(R.string.problem_has_been_detected),
+                    "Invalid VM ID format. VM ID must contain only alphanumeric characters.",
+                    R.drawable.verified_user_24px
+            );
+            dismissDialog();
+            if (callback != null) callback.onError(ERROR_INVALID_VM_ID, "");
+            return;
+        }
+
+        // Use proper shell escaping for the cleanup command
+        // Since vmID is now validated to be alphanumeric only, we can safely use it
+        // But we still quote it for defense in depth
+        String cleanUpCommand = " && echo '" + TAG_FINISHED_WITHOUT_ERROR + "'\nrm -r \"" + Config.getCacheVMPath(vmID) + "\"";
 
         String finalCommand = VMManager.addAudioDevWav(vmID, String.format(runCommandFormat, env));
         finalCommand = "echo ===== COMMAND =====\necho\necho \"" + finalCommand + "\"\necho\necho ===== LOGS =====\necho\n" + finalCommand + cleanUpCommand;
